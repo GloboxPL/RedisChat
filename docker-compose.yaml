@@ -1,0 +1,11 @@
+version: '3'
+
+services: 
+    redis1: 
+        image: redis 
+        volumes: 
+            - redis1:/var/lib/redis
+        ports:
+            - 6379:6379
+volumes:
+    redis1: {}
