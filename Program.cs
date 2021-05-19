@@ -17,7 +17,6 @@ namespace RedisChat
         static void Main(string[] args)
         {
             Initialize();
-
             while (true)
             {
                 Write();
@@ -30,7 +29,7 @@ namespace RedisChat
             userName = Console.ReadLine();
             friendsKey += userName;
             RunChannelOperation("allchat", SubscribeChannel);
-            Console.WriteLine("Commands: friends:channel | addfriend:name | onchan:channel | schan:channel | pschan:pattern | uchan:channel | wchan:channel | cls:");
+            Console.WriteLine("Commands: friends: | addfriend:name | onchan:channel | schan:channel | pschan:pattern | uchan:channel | wchan:channel | cls: | exit:");
         }
 
         private static void Write()
@@ -53,6 +52,7 @@ namespace RedisChat
         private static void UnsubscribeChannel(int i)
         {
             pubsub.Unsubscribe(channels[i]);
+            db.SetRemove(channels[i], userName);
             Console.WriteLine("You left channel {0}.", channels[i]);
         }
 
@@ -96,11 +96,20 @@ namespace RedisChat
             }
         }
 
-        private static void GetFriends(int i)
+        private static void GetFriends()
         {
-            var friendsOnline = db.SetCombine(SetOperation.Intersect, friendsKey, channels[i]);
-            var friendsOffline = db.SetCombine(SetOperation.Difference, friendsKey, channels[i]);
-            Console.Write("{1} friends on channel {0}: ", channels[i], friendsOnline.Length);
+            RedisKey[] keys = new RedisKey[channels.Length];
+            for (int i = 0; i < keys.Length; i++)
+            {
+                keys[i] = new RedisKey(channels[i]);
+            }
+            string allOnlineUsersKey = "temp";
+            db.SetAdd(allOnlineUsersKey, db.SetCombine(SetOperation.Union, keys));
+            db.SetRemove(allOnlineUsersKey, userName);
+            var friendsOffline = db.SetCombine(SetOperation.Difference, friendsKey, allOnlineUsersKey);
+            var friendsOnline = db.SetCombine(SetOperation.Intersect, friendsKey, allOnlineUsersKey);
+            db.KeyDelete(allOnlineUsersKey);
+            Console.Write("{0} friends online: ", friendsOnline.Length);
             foreach (var friend in friendsOnline)
             {
                 Console.Write(friend + " | ");
@@ -138,7 +147,7 @@ namespace RedisChat
             switch (command[0])
             {
                 case "friends":
-                    RunChannelOperation(command[1], GetFriends);
+                    GetFriends();
                     return true;
                 case "addfriend":
                     AddFriend(command[1]);
@@ -161,9 +170,22 @@ namespace RedisChat
                 case "cls":
                     Console.Clear();
                     return true;
+                case "exit":
+                    Exit();
+                    return true;
                 default:
                     return false;
             }
+        }
+
+        private static void Exit()
+        {
+            pubsub.UnsubscribeAll();
+            foreach (var channel in channels)
+            {
+                db.SetRemove(channel, userName);
+            }
+            Environment.Exit(0);
         }
 
         private static void MessageAction(RedisValue message)
